@@ -77,7 +77,7 @@ class RoarCompetitionRule:
         
         self.furthest_waypoints_index += min_index #= new_furthest_index
         self._last_vehicle_location = current_location
-        print(f"reach waypoints {self.furthest_waypoints_index} at {self.waypoints[self.furthest_waypoints_index].location}")
+        # print(f"reach waypoints {self.furthest_waypoints_index} at {self.waypoints[self.furthest_waypoints_index].location}")
 
     
     async def respawn(
@@ -167,7 +167,8 @@ async def evaluate_solution(
         occupancy_map_sensor,
         collision_sensor
     )
-    rule = RoarCompetitionRule(waypoints * 3,vehicle,world) # 3 laps
+    laps = 3
+    rule = RoarCompetitionRule(waypoints * laps,vehicle,world) # 3 laps
 
     for _ in range(20):
         await world.step()
