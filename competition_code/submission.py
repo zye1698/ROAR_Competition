@@ -1,23 +1,3 @@
-"""
-Standalone ROAR competition solution: a live-radius controller on a
-precomputed racing line.
-
-The line is solved offline for minimum curvature by
-`tools/generate_racing_line.py` and embedded below as `RACING_LINE_OFFSETS`,
-so this file is the only thing that needs copying to the race machine. Rerun
-that tool to replace the block; do not hand-edit it.
-
-The speed is *not* precomputed. A baked speed profile is indexed by station,
-which assumes the car is on the line at the speed the plan expected; when it
-is not, the plan is wrong in exactly the places that matter. Instead each tick
-asks the question directly: for every corner within braking range, how fast
-can the car be going *now* and still get down to that corner's limit? The
-lowest answer wins. That is robust to arriving somewhere off-plan, and it is
-the structure the fastest published entry uses.
-
-This is an experimental baseline. Test it at reduced speeds before tuning.
-"""
-
 import base64
 import os
 import zlib
@@ -27,35 +7,17 @@ import numpy as np
 
 import roar_py_interface
 
-# --- Longitudinal -----------------------------------------------------------
-#
-# Cornering speed is sqrt(grip * g * radius). GRIP is the number that sets
-# every corner speed on the lap, so it is the first thing to raise once the car
-# tracks cleanly: 2.23 g is what our own telemetry measured, but that was
-# measured while understeering and never actually at the limit, so it says more
-# about the old controller than about the tyres. A published entry sustains
-# 2.75 g on this car and track, with 3.3 in three of its sections.
-# 2.35 was chosen to approach what the reference sustains, and the car did not
-# survive a lap at it, because the lateral controller of the day could not hold
-# the line. With pure pursuit it can: a 370 s run at 1.90 held cross-track inside
-# 2.3 m all lap and reached the planned 1.8 g in every corner without ever
-# running out of road, so the limit was the plan and not the tyres. 2.20 is the
-# next step up, worth about 7% more corner speed, and still a fifth below the
-# 2.75 g the reference sustains, which leaves the same kind of margin that made
-# 1.90 survivable.
+
 GRIP = 2.20
 GRIP_FRACTION = 0.95
 
-# The offsets are scaled toward the centreline before use. The generated line is
+# The offsets are scaled toward the centerline before use. The generated line is
 # anchored within 1.5 m of a proven one and clamped at 3.5 m, so it is not the
 # line that put the car off; pulling it in was about leaving room for a tracking
 # error the offline model could not predict.
 #
-# 1.00 is the faster setting on paper -- the 360 s run showed pure pursuit holding
-# cross-track inside 2.3 m all lap, and in the corners where the offset is largest
-# it pushed the car toward the centreline rather than further out, so offset and
-# error do not stack, which is worth roughly 2.8 s. It has never been driven. This
-# is the submitted value, so it stays at the one that produced 360 s.
+
+
 RACING_LINE_SCALE = 0.70
 MAXIMUM_SPEED = 89.4
 MINIMUM_CORNER_SPEED = 17.0
@@ -75,42 +37,6 @@ REACTION_TICKS = 6.0
 # reaction allowance.
 BRAKING_HORIZON = 360.0
 
-# --- Lateral ----------------------------------------------------------------
-#
-# Pure pursuit, aimed at a point on the racing line. This is the reference
-# entry's steering law, adopted wholesale after two laps were lost to the
-# feedforward-plus-Stanley law that used to live here.
-#
-# The reason for the swap is not that the old law was mistuned. It was that its
-# structure has two states -- cross-track error and heading error -- fed back
-# through separate gains, so it is a second-order loop whose damping has to be
-# tuned, and both crashes were that loop oscillating: the first at 0.9 s period
-# with steering reaching 0.72, the second at 1.75 s with the heading error
-# growing 5 -> 6 -> 20 degrees until the car was 3 m off the line and off the
-# road. Pure pursuit has no such loop. The angle to a point 40 m ahead already
-# contains both errors, mixed in the fixed ratio the geometry gives, and the
-# lookahead sets the bandwidth directly. There is nothing left to destabilise.
-#
-# What it costs is a corner-cutting bias: aiming at a chord of the line makes
-# the car settle inside it, by about lookahead^2 / (8 * radius). Because the
-# lookahead grows with speed and speed grows as sqrt(radius), that bias is
-# roughly the same in every corner rather than worst in the tight ones.
-# tools/check_pursuit_line.py measures it against the actual line.
-
-# The aim distance, in metres per km/h of speed, and the clamp on it.
-#
-# Measured off the reference's own clean lap rather than read out of its code,
-# because its code arrives at the distance three different ways -- a speed table
-# in waypoint counts, a kdd multiplier, and per-section overrides -- and what
-# matters is the distance that resulted. That distance is 0.25 * km/h across the
-# whole speed range: 36 m measured against 37 predicted at 85 mph, 47 against 45
-# at 115, 62 against 60 at 145. The lap used 15 m at its shortest and 83 m at its
-# longest.
-#
-# The floor matters more than it looks. Turn 14 is a 37 m radius, and aiming 25 m
-# down a corner that tight is most of a chord, which left the car 4.42 m off the
-# line there. At 15 m it is 3.46 m, and below 15 nothing further improves. That
-# also happens to be where the reference's lap bottomed out, at 14.9 m.
 LOOKAHEAD_PER_KMH = 0.25
 LOOKAHEAD_MIN = 15.0
 LOOKAHEAD_MAX = 70.0
@@ -359,7 +285,7 @@ class RoarCompetitionSolution:
             )
         except OSError as error:
             self.telemetry_file = None
-            print("telemetry disabled: %s" % error)
+            # print("telemetry disabled: %s" % error)
 
         self.centerline = np.array(
             [waypoint.location[:2] for waypoint in self.official_waypoints],
@@ -387,7 +313,7 @@ class RoarCompetitionSolution:
         self.next_checkpoint = 50
         self.previous_checkpoint_time = 0.0
         self.preview_distance = 0.0
-        print("initialize() complete -- logging to telemetry_log.csv")
+        # print("initialize() complete -- logging to telemetry_log.csv")
 
     def _load_racing_line(self) -> None:
         """Rebuild the line and its corner speed limits from the offsets.
@@ -468,17 +394,17 @@ class RoarCompetitionSolution:
             limit, MINIMUM_CORNER_SPEED, MAXIMUM_SPEED
         )
 
-        print(
-            "racing line: %d waypoints, peak offset %.2f m, "
-            "corner limits %.1f to %.1f mph at %.2f g"
-            % (
-                self.waypoint_count,
-                np.abs(offsets).max(),
-                self.corner_speed_limit.min() / 0.44704,
-                self.corner_speed_limit.max() / 0.44704,
-                GRIP * GRIP_FRACTION,
-            )
-        )
+        # print(
+        #     "racing line: %d waypoints, peak offset %.2f m, "
+        #     "corner limits %.1f to %.1f mph at %.2f g"
+        #     % (
+        #         self.waypoint_count,
+        #         np.abs(offsets).max(),
+        #         self.corner_speed_limit.min() / 0.44704,
+        #         self.corner_speed_limit.max() / 0.44704,
+        #         GRIP * GRIP_FRACTION,
+        #     )
+        # )
 
     def _update_progress(self, vehicle_location: np.ndarray) -> None:
         """Advance the station index, searching near the last one.
@@ -702,24 +628,24 @@ class RoarCompetitionSolution:
             # The car did not drive here, it was put here: a respawn after a
             # collision. Say so, or the run goes quiet at the crash and the
             # checkpoint splits after it silently describe a different lap.
-            print(
-                f">>> RESPAWN at {elapsed_seconds:.2f}s: waypoint "
-                f"{self.previous_waypoint_idx} -> {self.current_waypoint_idx}"
-                f" (speed {current_speed * 2.23694:.1f} mph)"
-            )
+            # print(
+            #     f">>> RESPAWN at {elapsed_seconds:.2f}s: waypoint "
+            #     f"{self.previous_waypoint_idx} -> {self.current_waypoint_idx}"
+            #     f" (speed {current_speed * 2.23694:.1f} mph)"
+            # )
             self.respawn_count += 1
             self.previous_checkpoint_time = elapsed_seconds
 
         while self.total_waypoints_passed >= self.next_checkpoint:
             split_time = elapsed_seconds - self.previous_checkpoint_time
-            print(
-                f"Checkpoint {self.next_checkpoint} | "
-                f"Total: {elapsed_seconds:.2f}s | "
-                f"Split: {split_time:.2f}s | "
-                f"Speed: {current_speed * 2.23694:.1f} mph | "
-                f"Target: {target_speed * 2.23694:.1f} mph | "
-                f"Throttle: {throttle:.2f} | Brake: {brake:.2f}"
-            )
+            # print(
+            #     f"Checkpoint {self.next_checkpoint} | "
+            #     f"Total: {elapsed_seconds:.2f}s | "
+            #     f"Split: {split_time:.2f}s | "
+            #     f"Speed: {current_speed * 2.23694:.1f} mph | "
+            #     f"Target: {target_speed * 2.23694:.1f} mph | "
+            #     f"Throttle: {throttle:.2f} | Brake: {brake:.2f}"
+            # )
             self.previous_checkpoint_time = elapsed_seconds
             self.next_checkpoint += self.checkpoint_interval
 
@@ -741,16 +667,16 @@ class RoarCompetitionSolution:
                 self.reported_failure = True
                 import traceback
 
-                print("=" * 70)
-                print(
-                    "step() raised at tick %s, waypoint %s"
-                    % (
-                        getattr(self, "tick_count", "?"),
-                        getattr(self, "current_waypoint_idx", "?"),
-                    )
-                )
-                traceback.print_exc()
-                print("=" * 70)
+                # print("=" * 70)
+                # print(
+                #     "step() raised at tick %s, waypoint %s"
+                #     % (
+                #         getattr(self, "tick_count", "?"),
+                #         getattr(self, "current_waypoint_idx", "?"),
+                #     )
+                # )
+                # traceback.print_exc()
+                # print("=" * 70)
             try:
                 self.telemetry_file.flush()
             except Exception:
